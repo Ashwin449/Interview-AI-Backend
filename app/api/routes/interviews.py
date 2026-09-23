@@ -1,16 +1,33 @@
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_roles
 from app.db.session import get_db
 from app.models.auth import User
+from app.models.enums import InterviewStatus
+from app.schemas.admin_views import InterviewListResponse
 from app.schemas.evaluation import CompetencyScoreResponse, InterviewReportResponse
 from app.schemas.interview import BlueprintResponse, InterviewCreateRequest, InterviewResponse, QuestionResponse
 from app.services import interview_service, session_service
 
 router = APIRouter(prefix="/api/interviews", tags=["interviews"])
+
+
+@router.get("", response_model=InterviewListResponse)
+async def list_interviews(
+    status_filter: InterviewStatus | None = Query(default=None, alias="status"),
+    search: str | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(require_roles("INTERVIEWER", "ADMIN")),
+    db: AsyncSession = Depends(get_db),
+):
+    items, total = await interview_service.list_interviews(
+        db, status_filter=status_filter, search=search, skip=skip, limit=limit
+    )
+    return InterviewListResponse(items=items, total=total)
 
 
 @router.post("", response_model=InterviewResponse, status_code=status.HTTP_201_CREATED)

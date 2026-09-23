@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import admin, auth, interviews, jobs, resumes, sessions, users
+from app.api.routes import admin, auth, dashboard, interviews, jobs, resumes, sessions, users
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -33,6 +33,7 @@ app.include_router(jobs.router)
 app.include_router(interviews.router)
 app.include_router(sessions.router)
 app.include_router(admin.router)
+app.include_router(dashboard.router)
 
 
 @app.exception_handler(Exception)

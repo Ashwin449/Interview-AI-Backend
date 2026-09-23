@@ -41,6 +41,10 @@ class Interview(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     status: Mapped[InterviewStatus] = mapped_column(
         Enum(InterviewStatus, name="interview_status"), default=InterviewStatus.SCHEDULED
     )
+    # NEW: when the interview is scheduled to take place. Nullable so existing
+    # rows (created before this column existed) don't break; new interviews
+    # created via the "Schedule Interview" flow should always set this.
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     overall_score: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)

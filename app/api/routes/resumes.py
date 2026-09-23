@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,10 +9,23 @@ from app.core.dependencies import get_current_user, require_roles
 from app.db.session import get_db
 from app.models.auth import User
 from app.models.candidate import CandidateProfile, Resume
+from app.schemas.admin_views import ResumeAdminListResponse
 from app.schemas.candidate import ResumeAnalysisResponse, ResumeResponse
 from app.services import resume_service
 
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
+
+
+@router.get("", response_model=ResumeAdminListResponse)
+async def list_all_resumes(
+    search: str | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(require_roles("ADMIN", "INTERVIEWER")),
+    db: AsyncSession = Depends(get_db),
+):
+    items, total = await resume_service.list_all_resumes(db, search=search, skip=skip, limit=limit)
+    return ResumeAdminListResponse(items=items, total=total)
 
 
 @router.post("/upload", response_model=ResumeResponse, status_code=status.HTTP_201_CREATED)

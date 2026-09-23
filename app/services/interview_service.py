@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -9,8 +9,9 @@ from app.ai.blueprint_generator import generate_blueprint
 from app.ai.question_generator import PROMPT_VERSION as QUESTION_PROMPT_VERSION
 from app.ai.question_generator import generate_questions_for_competency
 from app.core.exceptions import NotFoundError
+from app.models.auth import User
 from app.models.candidate import CandidateProfile, ResumeAnalysis
-from app.models.enums import AIOperation, AIRunStatus, BlueprintStatus
+from app.models.enums import AIOperation, AIRunStatus, BlueprintStatus, InterviewStatus
 from app.models.interview import (
     BlueprintCompetency,
     EvaluationRubric,
@@ -20,6 +21,7 @@ from app.models.interview import (
 )
 from app.models.job import Job, JobSkill
 from app.models.candidate import Resume, Skill
+from app.schemas.admin_views import InterviewListItemResponse
 from app.schemas.interview import InterviewCreateRequest
 from app.services.ai_tracking import record_ai_run
 
@@ -37,6 +39,7 @@ async def create_interview(db: AsyncSession, interviewer_id: uuid.UUID | None, p
         interview_type=payload.interview_type,
         difficulty=payload.difficulty,
         duration_minutes=payload.duration_minutes,
+        scheduled_at=payload.scheduled_at,
     )
     db.add(interview)
     await db.commit()
@@ -50,6 +53,63 @@ async def get_interview(db: AsyncSession, interview_id: uuid.UUID) -> Interview:
     if interview is None:
         raise NotFoundError("Interview not found")
     return interview
+
+
+def _initials(user: User) -> str:
+    first = (user.first_name or "")[:1]
+    last = (user.last_name or "")[:1]
+    return f"{first}{last}".upper()
+
+
+async def list_interviews(
+    db: AsyncSession,
+    status_filter: InterviewStatus | None = None,
+    search: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[InterviewListItemResponse], int]:
+    """Powers the Interviews table: stat tabs (status_filter) + candidate search."""
+    base_stmt = (
+        select(Interview, User)
+        .join(CandidateProfile, CandidateProfile.id == Interview.candidate_id)
+        .join(User, User.id == CandidateProfile.user_id)
+    )
+
+    if status_filter is not None:
+        base_stmt = base_stmt.where(Interview.status == status_filter)
+
+    if search:
+        term = f"%{search.strip().lower()}%"
+        base_stmt = base_stmt.where(
+            or_(
+                func.lower(User.first_name).like(term),
+                func.lower(User.last_name).like(term),
+                func.lower(Interview.title).like(term),
+            )
+        )
+
+    count_result = await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+    total = count_result.scalar_one()
+
+    rows_result = await db.execute(
+        base_stmt.order_by(Interview.created_at.desc()).offset(skip).limit(limit)
+    )
+
+    items = [
+        InterviewListItemResponse(
+            id=interview.id,
+            candidate_id=interview.candidate_id,
+            candidate_name=f"{user.first_name} {user.last_name}".strip(),
+            initials=_initials(user),
+            role=interview.title,
+            interview_type=interview.interview_type,
+            scheduled_at=interview.scheduled_at,
+            status=interview.status,
+            score=float(interview.overall_score) if interview.overall_score is not None else None,
+        )
+        for interview, user in rows_result.all()
+    ]
+    return items, total
 
 
 async def _latest_resume_summary(db: AsyncSession, candidate_id: uuid.UUID) -> str | None:

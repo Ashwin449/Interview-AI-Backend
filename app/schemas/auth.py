@@ -38,3 +38,16 @@ class UserResponse(BaseModel):
     is_active: bool
     is_verified: bool
     roles: list[str] = []
+
+
+class CurrentUserResponse(BaseModel):
+    id: int
+    full_name: str
+    first_name: str
+    last_name: str
+    email: str
+    role: str
+    initials: str
+
+    class Config:
+        from_attributes = True

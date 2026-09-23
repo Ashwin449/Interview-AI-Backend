@@ -4,15 +4,17 @@ from pathlib import Path
 
 from fastapi import UploadFile
 from pypdf import PdfReader
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.ai.resume_analyzer import PROMPT_VERSION, analyze_resume_text
 from app.core.config import get_settings
 from app.core.exceptions import AIServiceError, NotFoundError
+from app.models.auth import User
 from app.models.candidate import CandidateExperience, CandidateProfile, CandidateSkill, Resume, ResumeAnalysis, Skill
 from app.models.enums import AIOperation, AIRunStatus
+from app.schemas.admin_views import ResumeAdminListItemResponse
 from app.services.ai_tracking import record_ai_run
 
 settings = get_settings()
@@ -191,3 +193,56 @@ def _parse_date(value: str | None):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def _initials(user: User) -> str:
+    first = (user.first_name or "")[:1]
+    last = (user.last_name or "")[:1]
+    return f"{first}{last}".upper()
+
+
+async def list_all_resumes(
+    db: AsyncSession,
+    search: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> tuple[list[ResumeAdminListItemResponse], int]:
+    """Powers the admin 'Recently Uploaded Resumes' table (across all candidates)."""
+    base_stmt = (
+        select(Resume, User)
+        .join(CandidateProfile, CandidateProfile.id == Resume.candidate_id)
+        .join(User, User.id == CandidateProfile.user_id)
+    )
+
+    if search:
+        term = f"%{search.strip().lower()}%"
+        base_stmt = base_stmt.where(
+            or_(
+                func.lower(User.first_name).like(term),
+                func.lower(User.last_name).like(term),
+                func.lower(Resume.file_name).like(term),
+            )
+        )
+
+    count_result = await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+    total = count_result.scalar_one()
+
+    rows_result = await db.execute(
+        base_stmt.options(selectinload(Resume.analysis))
+        .order_by(Resume.uploaded_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+
+    items = [
+        ResumeAdminListItemResponse(
+            id=resume.id,
+            candidate_name=f"{user.first_name} {user.last_name}".strip(),
+            initials=_initials(user),
+            file_name=resume.file_name,
+            uploaded_on=resume.uploaded_at,
+            status="Analyzed" if resume.analysis is not None else "Processing",
+        )
+        for resume, user in rows_result.all()
+    ]
+    return items, total

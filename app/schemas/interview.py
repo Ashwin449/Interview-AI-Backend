@@ -21,6 +21,7 @@ class InterviewCreateRequest(BaseModel):
     difficulty: str | None = "MEDIUM"
     duration_minutes: int = 30
     total_questions: int = 10
+    scheduled_at: datetime | None = None  # NEW — powers "Upcoming Interviews" + the Date & Time column
 
 
 class InterviewResponse(BaseModel):
@@ -34,6 +35,7 @@ class InterviewResponse(BaseModel):
     interview_type: InterviewType
     difficulty: str | None
     duration_minutes: int
+    scheduled_at: datetime | None  # NEW
     status: InterviewStatus
     started_at: datetime | None
     completed_at: datetime | None
